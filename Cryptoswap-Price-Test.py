@@ -213,6 +213,11 @@ def get_dy(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], 
         List containing fee gamma, mid fee, and out fee for 
         the fee calculation
     
+    Returns
+    -------
+    float
+        The output of coin j minus the swap fee
+    
     Note
     ----
     This is a "view" function; it doesn't change the state of the pool.
@@ -277,7 +282,7 @@ def spot_price(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[floa
     """
     Calculate a spot price in coin j per coin i in D units.
     Simply differentiate the Cryptoswap equation F
-    to derive the formula below, equal to (dF/dx)/(dF/dy),
+    to derive the formula below, equal to (dF/dy)/(dF/dx),
     and simplify.
     
     Parameters
@@ -416,7 +421,6 @@ gamma_base: float = 1.1809167828997 # taken from pool named above (at 10**-5 dec
 # First list is within gamma's range of values: 10**-8 <= gamma <= 10**-2. Second list is to approximate Stableswap, which Cryptoswap becomes at gamma ~10
 gammas: List[float] = [gamma_base * 10**i for i in range(-8, -3 + 1)] + [gamma_base * 10**i for i in range(-2, 1 + 1)]
 
-
 # xp is normalized to token 0 units (not factoring in precision)
 # order for tricrypto-2: USDT, BTC, ETH 
 
@@ -475,7 +479,7 @@ for param_set in product(ij, ANNs, gammas, xps, dxs, fee_params_lists):
     dx = param_set[4]
     fee_params = param_set[5]
     
-    notij = list(set(range(N)) - set(sorted((i, j))))
+    notij = list(set(range(N)) - set(i, j))
     
     D = _newton_D(ANN, gamma, xp)
     
@@ -488,11 +492,10 @@ for param_set in product(ij, ANNs, gammas, xps, dxs, fee_params_lists):
     optimized_derivation_delta = (dydx - optimized_derivation) / dydx
     delta_diff = simple_derivation_delta - optimized_derivation_delta
     
-    # Each variable matches the corresponding column label above
+    # Each variable matches the corresponding column label below
     table.append([N, (i, j), ANN / N**N, gamma, fee_params, xp[i], xp[j], [xp[k] for k in notij], \
         D, dx, dy, dydx, simple_derivation, optimized_derivation, simple_derivation_delta, optimized_derivation_delta, \
         delta_diff])
-    
     
 filepath = 'Cryptoswap-Price-Test.csv' 
 column_labels = ["N", "(i, j)", "A", "gamma", "[fee_gamma, mid_fee, out_fee]", "xp[i]", "xp[j]", "[xp[not i or j]]", \
