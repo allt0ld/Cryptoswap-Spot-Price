@@ -479,7 +479,7 @@ for param_set in product(ij, ANNs, gammas, xps, dxs, fee_params_lists):
     dx = param_set[4]
     fee_params = param_set[5]
     
-    notij = list(set(range(N)) - set(i, j))
+    notij = list(set(range(N)) - set((i, j)))
     
     D = _newton_D(ANN, gamma, xp)
     
