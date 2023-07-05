@@ -1,6 +1,7 @@
 from typing import List
 from pandas import DataFrame
 from matplotlib import pyplot as plt
+from scipy.optimize import fsolve
 from itertools import product, permutations
 
 MIN_GAMMA = 10**-8
@@ -54,49 +55,35 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
     
     for i in range(1, N):
         assert(x[i] / x[0] >= 10**-4) # dev: unsafe values x[i]
-        
-    D: float = N * _geometric_mean(x)
+
+    A = ANN / N**N
     S: float = sum(x)
     P: float = prod(x)
-    
-    for _ in range(255):
-        D_prev: float = D
-        
+
+    D0: float = N * _geometric_mean(x) # initial estimate when solving for D
+
+    # callable function representing our invariant to pass to scipy's solver fsolve
+    def cryptoswap(D: float) -> List[float]:
         K0: float = P / (D / N)**N
-        
         _g1mk0: float = gamma + 1 - K0
+        K: float = A * K0 * gamma**2 / _g1mk0**2
         
-        mul1: float = D / ANN * _g1mk0**2 / gamma**2
-        
-        mul2: float = 2 * N * K0 / _g1mk0
-        
-        neg_fprime: float = S + (S - D) * mul2 + mul1 * N / K0
-        
-        D_plus: float = D * (neg_fprime + S) / neg_fprime
-        D_minus: float = D * D / neg_fprime
-        
-        if 1 > K0:
-            D_minus += D * mul1 / neg_fprime * (1 - K0) / K0
-        else:
-            D_minus -= D * mul1 / neg_fprime * (K0 - 1) / K0
-        
-        if D_plus > D_minus:
-            D = D_plus - D_minus
-        else:
-            D + (D_minus - D_plus) / 2
-            
-        diff: float = D - D_prev
-            
-        if abs(diff) / 10**4 < max(10**-2, D):
-            # Could reduce precision for gas efficiency here
-            # Test that we are safe with the next newton_y
-            for _x in x:
-                frac: float = _x / D
-                if frac < 10**-2 or frac > 10**2:
-                    raise Exception("Unsafe value for x[i]")
-            return D
-        
-    raise Exception("Did not converge")
+        return list(K * D**(N - 1) * S + P - K * D**N - (D / N)**N) # this form = 0
+
+    # ndarray, dict, int, str are the respective types returned
+    # maxfev - 255 iterations max
+    D, infodict, ier, mesg = fsolve(func=cryptoswap, x0=[D0], full_output=True, maxfev=255)
+
+    # ier == 1 means fsolve found a solution
+    if ier == 1:
+        for _x in x:
+            frac: float = _x / D
+            if frac < 10**-2 or frac > 10**2:
+                raise Exception("Unsafe value for x[i]")
+
+        return D[0]
+
+    raise Exception(f"D did not converge: {mesg}")
 
 def _fee(fee_params: List[float], xp: List[float]) -> float:
     """
@@ -137,56 +124,36 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
     x_j: List[float] = xp_unsorted.copy()
     x_j.pop(i) # all j != i
     x_j.sort(reverse=True) # highest to lowest
-    
+
+    A: float = ANN / N**N
+    S_x_j: float = sum(x_j)
     P_x_j: float = prod(x_j)
      
-    y: float  = (D / N)**N / P_x_j 
-    K0_i: float =  P_x_j / (D / N)**(N - 1)
-    
-    assert (
-        0.01 * N <= K0_i <= 100 * N # 10**16 * N <= K0_i <= 10**20 * N
-    )  # dev: unsafe values x[i]
-    
-    convergence_limit: float = max(max(x_j[0] / 10**4, D / 10**4), 100) # max(max(x_j // 10**14, D // 10**14), 100)
-    
-    for _ in range(255):
-        y_prev: float = y
-        
-        K0: float = K0_i * y * N / D
-        S: float = sum(x_j) + y
-        
+    y0: float  = (D / N)**N / P_x_j # initial estimate when solving for y
+    # K0_i: float =  P_x_j / (D / N)**(N - 1)
+
+    for x in x_j:
+        assert (0.01 <= x / D <= 100)  # dev: unsafe values x[i]
+
+    # callable function representing our invariant to pass to scipy's solver fsolve
+    def cryptoswap(y: float) -> List[float]:
+        K0: float = P_x_j * y / (D / N)**N
         _g1mk0: float = gamma + 1 - K0
-        
-        mul1: float = (D * _g1mk0**2) / (ANN * gamma**2)
-        
-        mul2: float = 2 * K0 / _g1mk0
-        
-        yfprime: float = y + S * mul2 + mul1
-        _dyfprime: float = D * mul2
-        if yfprime < _dyfprime:
-            y = y_prev / 2
-            continue
-        
-        yfprime -= _dyfprime
-        fprime: float = yfprime / y
-        
-        y_minus: float = mul1 / fprime
-        y_plus: float = (yfprime + D) / fprime + y_minus / K0
-        y_minus += S / fprime
-        
-        if y_plus < y_minus:
-            y = y_prev / 2
-        else:
-            y = y_plus - y_minus
-            
-        diff: float = y - y_prev 
-        
-        if abs(diff) < max(convergence_limit, y / 10**4):
-            frac: float = y / D
-            assert 0.01 <= frac <= 100 # dev: unsafe value for y
-            return y
-        
-    raise Exception("Did not converge")
+        K: float = A * K0 * gamma**2 / _g1mk0**2
+
+        return list(K * D**(N - 1) * (S_x_j + y) + P_x_j * y - K * D**N - (D / N)**N) #  this form = 0
+
+    # ndarray, dict, int, str are the respective types returned
+    # maxfev - 255 iterations max
+    y, infodict, ier, mesg = fsolve(func=cryptoswap, x0=[y0], full_output=True, maxfev=255)
+
+    # ier == 1 means fsolve found a solution
+    if ier == 1:
+        frac: float = y / D
+        assert 0.01 <= frac <= 100 # dev: unsafe value for y
+        return y[0]
+
+    raise Exception(f"y did not converge: {mesg}")
 
 def get_dy(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], dx: float, fee_params: List[float]) -> float:
     """
@@ -436,6 +403,10 @@ gammas: List[float] = [gamma_base * 10**i for i in range(-8, -3 + 1)] + [gamma_b
 # Slippage is assumed to benefit the pool
 
 # Extreme values
+
+# NEED MORE EXTREME - AT LEAST 1 BALANCE AS SINGLE DIGIT % OF ONE OTHER
+# also need n = 2
+
 '''
 xps: List[List[float]] = [[50_000_000, 50_000_000, 50_000_000], \
     [60_000_000, 45_000_000, 45_000_000], [75_000_000, 39_000_000, 39_000_000], \
@@ -457,7 +428,7 @@ xps: List[List[float]] = [[50_000_000, 50_000_000, 50_000_000], \
     ]
 
 dx_iter: int = 4 # num. of dx to iterate through  
-dx_step: float = 10**-4 # increment dx by this much in token 0 units (not factoring in precision)
+dx_step: float = 10**-6 # increment dx by this much in token 0 units (not factoring in precision)
 dxs: List[float] = [i * dx_step for i in range(1, dx_iter + 1)]
 
 # taken from pool named above
@@ -488,8 +459,8 @@ for param_set in product(ij, ANNs, gammas, xps, dxs, fee_params_lists):
     simple_derivation = spot_price(i, j, ANN, gamma, D, xp, fee_params) # our formula
     optimized_derivation = get_p(i, j, ANN, gamma, D, xp, fee_params) # onchain formula
     
-    simple_derivation_delta = (dydx - simple_derivation) / dydx
-    optimized_derivation_delta = (dydx - optimized_derivation) / dydx
+    simple_derivation_delta = dydx - simple_derivation
+    optimized_derivation_delta = dydx - optimized_derivation
     delta_diff = simple_derivation_delta - optimized_derivation_delta
     
     # Each variable matches the corresponding column label below
@@ -503,7 +474,8 @@ column_labels = ["N", "(i, j)", "A", "gamma", "[fee_gamma, mid_fee, out_fee]", "
 df = DataFrame(data=table, columns=column_labels)
 df.to_csv(filepath)
 
-df.hist(column="Difference in Deltas", bins=3000)
+df.hist(column="Our Formula Delta")
+df.hist(column="Onchain Formula Delta")
 plt.show()
 
 '''
