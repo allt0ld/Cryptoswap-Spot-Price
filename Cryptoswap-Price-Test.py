@@ -1,34 +1,10 @@
+import scipy as sp
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from math import prod
 from typing import List
-from pandas import DataFrame
-from matplotlib import pyplot as plt
-from scipy.optimize import fsolve
 from itertools import product, permutations
-
-MIN_GAMMA = 10**-8
-MAX_GAMMA = 10**2 # Normally 10**-2, raised for experimentation
-
-def prod(x: List[float]) -> float:
-    """
-    Returns the product of a list of numbers.
-    """
-    
-    P: float = 1.0
-    
-    for _x in x:
-        P *= _x
-        
-    return P
-
-def _geometric_mean(x: List[float]) -> float:
-    """
-    Returns the geometric mean of a list of numbers.
-    """
-    x: List[float] = x
-    N: int = len(x)
-    
-    P: float = prod(x)
-        
-    return P**(1/N)
 
 def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
     """
@@ -40,29 +16,15 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
     
     N: int = len(xp_unsorted)
     
-    min_A = N**N * 0.1
-    max_A = N**N * 100000
-    
-    if ANN > max_A or ANN < min_A:
-        raise Exception("Unsafe value for A")
-    if gamma > MAX_GAMMA or gamma < MIN_GAMMA:
-        raise Exception("Unsafe value for gamma")
-    
-    x: List[int] = xp_unsorted.copy() 
-    x.sort(reverse=True) # highest to lowest
-    
-    assert(x[0] >= 10**-9 and x[0] <= 10**15) # dev: unsafe values x[0]
-    
-    for i in range(1, N):
-        assert(x[i] / x[0] >= 10**-4) # dev: unsafe values x[i]
+    x: List[int] = xp_unsorted.copy()
 
     A = ANN / N**N
     S: float = sum(x)
     P: float = prod(x)
 
-    D0: float = N * _geometric_mean(x) # initial estimate when solving for D
+    D0: float = N * sp.stats.gmean(x)  # initial estimate when solving for D
 
-    # callable function representing our invariant to pass to scipy's solver fsolve
+    # function representing our invariant
     def cryptoswap(D: float) -> List[float]:
         K0: float = P / (D / N)**N
         _g1mk0: float = gamma + 1 - K0
@@ -70,20 +32,14 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
         
         return list(K * D**(N - 1) * S + P - K * D**N - (D / N)**N) # this form = 0
 
-    # ndarray, dict, int, str are the respective types returned
-    # maxfev - 255 iterations max
-    D, infodict, ier, mesg = fsolve(func=cryptoswap, x0=[D0], full_output=True, maxfev=255)
+    # List[float], dict, int, str are returned
+    D, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[D0], full_output=True)
 
-    # ier == 1 means fsolve found a solution
+    # if fsolve found a solution
     if ier == 1:
-        for _x in x:
-            frac: float = _x / D
-            if frac < 10**-2 or frac > 10**2:
-                raise Exception("Unsafe value for x[i]")
-
         return D[0]
 
-    raise Exception(f"D did not converge: {mesg}")
+    raise Exception(f"D did not converge: {ANN} {gamma} {x} {D[0]} {D0} {mesg}")
 
 def _fee(fee_params: List[float], xp: List[float]) -> float:
     """
@@ -100,9 +56,9 @@ def _fee(fee_params: List[float], xp: List[float]) -> float:
     mid_fee = fee_params[1]
     out_fee = fee_params[2]
     
-    f = fee_gamma / (fee_gamma + 1 - (P / (S / N)**N))
+    g = fee_gamma / (fee_gamma + 1 - (P / (S / N)**N))
     
-    return f * mid_fee + (1 - f) * out_fee
+    return g * mid_fee + (1 - g) * out_fee
  
 def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[float]) -> float:
     """
@@ -111,31 +67,16 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
     """
     N: int = len(xp_unsorted)
     
-    min_A = N**N * 0.1
-    max_A = N**N * 100000
-    if ANN > max_A or ANN < min_A:
-        raise Exception("Unsafe value for A")
-    if gamma > MAX_GAMMA or gamma < MIN_GAMMA:
-        raise Exception("Unsafe value for gamma")
-    if D > 10**15 or D < 0.01: # normally d < 0.1 is unsafe, lowered for experimentation
-        raise Exception("Unsafe value for D")
-    
-    # adapt to N coins
     x_j: List[float] = xp_unsorted.copy()
-    x_j.pop(i) # all j != i
-    x_j.sort(reverse=True) # highest to lowest
+    x_j = np.delete(x_j, i) # all j != i
 
     A: float = ANN / N**N
     S_x_j: float = sum(x_j)
     P_x_j: float = prod(x_j)
      
     y0: float  = (D / N)**N / P_x_j # initial estimate when solving for y
-    # K0_i: float =  P_x_j / (D / N)**(N - 1)
 
-    for x in x_j:
-        assert (0.01 <= x / D <= 100)  # dev: unsafe values x[i]
-
-    # callable function representing our invariant to pass to scipy's solver fsolve
+    # function representing our invariant
     def cryptoswap(y: float) -> List[float]:
         K0: float = P_x_j * y / (D / N)**N
         _g1mk0: float = gamma + 1 - K0
@@ -143,17 +84,14 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
 
         return list(K * D**(N - 1) * (S_x_j + y) + P_x_j * y - K * D**N - (D / N)**N) #  this form = 0
 
-    # ndarray, dict, int, str are the respective types returned
-    # maxfev - 255 iterations max
-    y, infodict, ier, mesg = fsolve(func=cryptoswap, x0=[y0], full_output=True, maxfev=255)
+    # List, dict, int, str are returned
+    y, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[y0], full_output=True)
 
-    # ier == 1 means fsolve found a solution
+    # if fsolve found a solution
     if ier == 1:
-        frac: float = y / D
-        assert 0.01 <= frac <= 100 # dev: unsafe value for y
         return y[0]
 
-    raise Exception(f"y did not converge: {mesg}")
+    raise Exception(f"y did not converge: {ANN} {gamma} {xp_unsorted} {D} {y[0]} {y0} {mesg}")
 
 def get_dy(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], dx: float, fee_params: List[float]) -> (float, float):
     """
@@ -186,10 +124,6 @@ def get_dy(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], 
         The output of coin j
     float 
         The output of coin j minus the swap fee
-    
-    Note
-    ----
-    This is a "view" function; it doesn't change the state of the pool.
     """
     N = len(xp)
     
@@ -204,7 +138,7 @@ def get_dy(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], 
     dy: float = xp_copy[j] - y
     xp_copy[j] = y
     
-    dy_fee = dy - _fee(fee_params, xp_copy) * dy
+    dy_fee = dy * (1 - _fee(fee_params, xp_copy))
     
     return dy, dy_fee
 
@@ -238,10 +172,6 @@ def get_dydx(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float]
         The output of coin j divided by the input of coin i
     float
         The output of coin j divided by the input of coin i minus the swap fee
-
-    Note
-    ----
-    This is a "view" function; it doesn't change the state of the pool.
     """
     dy, dy_fee = get_dy(i, j, ANN, gamma, D, xp, dx, fee_params)
     
@@ -291,7 +221,6 @@ def spot_price(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[floa
     ANNG2 = ANN * gamma**2 # A * N**N * gamma**2  
     
     xp_copy = xp.copy()
-    # xp_copy[i] += dx
     
     S = sum(xp_copy)
     P = prod(xp_copy)
@@ -306,8 +235,9 @@ def spot_price(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[floa
     
     # Spot price in token j per token i
     price_ji: float = above / below
+    price_ji_fee: float = price_ji * (1 - _fee(fee_params, xp_copy))
     
-    return price_ji, price_ji * (1 - _fee(fee_params, xp_copy))
+    return price_ji, price_ji_fee
     
 def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], fee_params: List[float]) -> (float, float):
     """
@@ -351,7 +281,6 @@ def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], f
     ANNG2 = ANN * gamma**2
     
     xp_copy = xp.copy()
-    # xp_copy[i] += dx
     
     P = prod(xp_copy)
     
@@ -365,8 +294,9 @@ def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], f
     
     # Spot price in token j per token i
     price_ji: float = above / below
+    price_ji_fee: float = price_ji * (1 - _fee(fee_params, xp_copy))
     
-    return price_ji, price_ji * (1 - _fee(fee_params, xp_copy))
+    return price_ji, price_ji_fee
 
 # Parameters taken from Tricrypto-2 (USDT-BTC-ETH) are indicated below
 
@@ -485,7 +415,7 @@ for N in Ns:
 
     ij: List[tuple] = list(permutations(range(N), r=2)) # all possible ordered i-j pairs as tuples
 
-    ANNs: List[float] = [A * N**N for A in [A_base + i * A_step for i in range(A_iter)]] 
+    ANNs: List[float] = [A * N**N for A in [A_base + i * A_step for i in range(A_iter)]]
 
     for xp in xps[N]:
 
@@ -529,7 +459,7 @@ for N in Ns:
 filepath = 'Cryptoswap-Price-Test.csv' 
 column_labels = ["N", "(i, j)", "A", "gamma", "[fee_gamma, mid_fee, out_fee]", "xp[i]", "xp[j]", "[xp[not i or j]]", \
                  "D", "dx", "dy", "dy / dx", "Our Formula", "Onchain Formula", "Our Formula Delta", "Onchain Formula Delta", "Difference in Deltas", "dy with Fee", "dy / dx with Fee", "Our Formula with Fee", "Onchain Formula with Fee", "Our Formula with Fee Delta", "Onchain Formula with Fee Delta", "Difference in Deltas with Fees"]
-df = DataFrame(data=table, columns=column_labels)
+df = pd.DataFrame(data=table, columns=column_labels)
 df.to_csv(filepath)
 
 df.hist(column="Our Formula with Fee Delta")
@@ -549,31 +479,8 @@ After each dy / dx calculation apply the fee formula given xp (including dx)
 output results in csv form, probably using pandas to_csv
 ''' 
 
-# Script flow
-'''
-Constants: MIN_GAMMA, MAX_GAMMA,
-    MIN_A, MAX_A - declare within each function given A and N
-
-(NOT NECESSARY FOR NOW)
-_xp(x, price_scale, precisions)
-
-_geometric_mean(N, x_unsorted)
-_newton_D(ANN, gamma, xp)
-
-_fee(fee_gamma, mid_fee, out_fee, xp)
-
-_newton_y(i, ANN, gamma, D, xp)
-get_dy(i, j, ANN, gamma, D, xp, dx, fee_params)
-get_dydx(i, j, ANN, gamma, D, xp, dx, fee_params)
-    
-spot_price(i, j, ANN, gamma, D, xp)
-    
-get_p(i, j, ANN, gamma, D, xp)
-'''
-
 # Questions:
 '''
-
 Some thoughts on introducing "noise" to inputs
     
     dx as balance mod (1 bp? * balance)? - with random() or brownian noise, which lies under a normal distribution 
@@ -583,11 +490,6 @@ Some thoughts on introducing "noise" to inputs
         why mod? will help further vary the dx if we ever feed in randomly generated balances (variance of taking mod percentage vs. just percentage)
         
             mod floats seems lossy tho
-    
-Deriving price_scale from the balances assumes the EMA hasn't been applied - is this acceptable for our tests?
-    How do you derive price_scale from balances when n > 2? (Probably assume the curve was newly rebalanced)
-        
-        check _tweak_price behaviour of tricrypto-2 or tricrypto-usdc; p is sent in from _exchange
     
 Using copy() a lot - will this consume too much memory in production?
 '''
