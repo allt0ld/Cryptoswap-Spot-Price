@@ -68,7 +68,7 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
     N: int = len(xp_unsorted)
     
     x_j: List[float] = xp_unsorted.copy()
-    x_j = np.delete(x_j, i) # all j != i
+    x_j.pop(i) # all j != i
 
     A: float = ANN / N**N
     S_x_j: float = sum(x_j)
