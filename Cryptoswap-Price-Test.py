@@ -2,7 +2,7 @@ import scipy as sp
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from math import prod
+from math import prod, ceil
 from typing import List
 from itertools import product, permutations
 
@@ -22,15 +22,18 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
     S: float = sum(x)
     P: float = prod(x)
 
-    D0: float = N * sp.stats.gmean(x)  # initial estimate when solving for D
+    #D0: float = N * sp.stats.gmean(x)  # initial estimate when solving for D
+    D0: float = S
 
     # function representing our invariant
     def cryptoswap(D: float) -> List[float]:
         K0: float = P / (D / N)**N
         _g1mk0: float = gamma + 1 - K0
         K: float = A * K0 * gamma**2 / _g1mk0**2
+
+        invariant: float = K * D**(N - 1) * S + P - K * D**N - (D / N)**N # this form = 0
         
-        return list(K * D**(N - 1) * S + P - K * D**N - (D / N)**N) # this form = 0
+        return list(invariant) 
 
     # List[float], dict, int, str are returned
     D, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[D0], full_output=True)
@@ -39,7 +42,7 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
     if ier == 1:
         return D[0]
 
-    raise Exception(f"D did not converge: {ANN} {gamma} {x} {D[0]} {D0} {mesg}")
+    raise Exception(f"D did not converge: {mesg} {ANN} {gamma} {x} {D[0]} {D0}")
 
 def _fee(fee_params: List[float], xp: List[float]) -> float:
     """
@@ -75,14 +78,20 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
     P_x_j: float = prod(x_j)
      
     y0: float  = (D / N)**N / P_x_j # initial estimate when solving for y
+    #y0: float = xp_unsorted[j]
 
     # function representing our invariant
     def cryptoswap(y: float) -> List[float]:
+        S: float  = S_x_j + y
         K0: float = P_x_j * y / (D / N)**N
         _g1mk0: float = gamma + 1 - K0
         K: float = A * K0 * gamma**2 / _g1mk0**2
 
-        return list(K * D**(N - 1) * (S_x_j + y) + P_x_j * y - K * D**N - (D / N)**N) #  this form = 0
+        # normal form is K * D**(N - 1) * (S_x_j + y) + P_x_j * y - K * D**N - (D / N)**N
+        #invariant: float = K0**3 - (2 * gamma + 3) * K0**2 + (ANN * gamma**2 * (S - D) / D + (gamma + 1) * (gamma + 3)) * K0 - (gamma + 1)**2 #  this form = 0
+        invariant: float = K * D**(N - 1) * (S_x_j + y) + P_x_j * y - K * D**N - (D / N)**N
+
+        return list(invariant)
 
     # List, dict, int, str are returned
     y, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[y0], full_output=True)
@@ -91,7 +100,7 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
     if ier == 1:
         return y[0]
 
-    raise Exception(f"y did not converge: {ANN} {gamma} {xp_unsorted} {D} {y[0]} {y0} {mesg}")
+    raise Exception(f"y did not converge: {mesg} {ANN} {gamma} {xp_unsorted} {D} {y[0]} {y0}")
 
 def get_dy(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], dx: float, fee_params: List[float]) -> (float, float):
     """
@@ -325,6 +334,26 @@ fee_params_lists: List[List[float]] = [[fee_gamma, mid_fee, out_fee],]
 # In every list of list of balances, scenarios are separated by line, with each line ordered from 
 # least to most imbalanced: 
 
+'''
+Programatically generating xps
+
+1. How are we going to traverse each bonding curve parameterized by p and initial (x1, x2, ..., xn)?
+    1a. How will we define a sufficient domain for any particular curve? 
+        intervals? every [movement in any of the dimensions], take a test case
+
+        far out enough on any of the axes, we will encounter asymptotic behaviour (since we're restricted
+        by the invariant), so we might stop once we reach some limit
+
+    
+
+2. All permutations of 1 input, ..., N - 1 simultaneous inputs
+
+3. Where does the randomness originate from?
+    - random p
+    - random initial (x1, ..., xn)
+    - "noise" in the dx
+'''
+
 # 2-coin crveth is an example (ETH-CRV):
 # perfect balance
 # eth dump
@@ -405,7 +434,7 @@ xps[2] = two_coin_xps
 xps[3] = three_coin_xps
 
 dx_iter: int = 4 # num. of dx to iterate through  
-dx_step: float = 10**-6 # increment dx by this much in token 0 units (not factoring in precision)
+dx_step: float = 1 # increment dx by this much in token 0 units (not factoring in precision)
 dxs: List[float] = [i * dx_step for i in range(1, dx_iter + 1)]
 
 # for csv output
@@ -426,17 +455,19 @@ for N in Ns:
             ANN = param_set[1]
             gamma = param_set[2]
             xp = param_set[3]
-            dx = param_set[4]
+            # dx = param_set[4]
+            dx = min(xp) * 10**-3
             fee_params = param_set[5]
             
             notij = list(set(range(N)) - set((i, j)))
             
             D = _newton_D(ANN, gamma, xp)
             
-            dydx, dydx_fee = get_dydx(i, j, ANN, gamma, D, xp, dx, fee_params) # discretized derivative
-            dy = dydx * dx
-            dy_fee = dydx_fee * dx
+            dy, dy_fee = get_dy(i, j, ANN, gamma, D, xp, dx, fee_params)
             
+            dydx = dy / dx # discretized derivative
+            dydx_fee = dy_fee / dx
+
             simple_derivation, simple_derivation_fee = spot_price(i, j, ANN, gamma, D, xp, fee_params) # our formula
             optimized_derivation, optimized_derivation_fee = get_p(i, j, ANN, gamma, D, xp, fee_params) # onchain formula
             
@@ -456,11 +487,12 @@ for N in Ns:
                           simple_derivation_delta_fee, optimized_derivation_delta_fee, delta_diff_fee])
 
 # think of a possible better way than simply overwriting every time
-filepath = 'Cryptoswap-Price-Test.csv' 
+filepaths = ['Cryptoswap-Price-Test.csv', 'Cryptoswap-Price-Test-Stats.csv'] 
 column_labels = ["N", "(i, j)", "A", "gamma", "[fee_gamma, mid_fee, out_fee]", "xp[i]", "xp[j]", "[xp[not i or j]]", \
                  "D", "dx", "dy", "dy / dx", "Our Formula", "Onchain Formula", "Our Formula Delta", "Onchain Formula Delta", "Difference in Deltas", "dy with Fee", "dy / dx with Fee", "Our Formula with Fee", "Onchain Formula with Fee", "Our Formula with Fee Delta", "Onchain Formula with Fee Delta", "Difference in Deltas with Fees"]
 df = pd.DataFrame(data=table, columns=column_labels)
-df.to_csv(filepath)
+df.to_csv(filepaths[0])
+df.describe().to_csv(filepaths[1])
 
 df.hist(column="Our Formula with Fee Delta")
 df.hist(column="Onchain Formula with Fee Delta")
