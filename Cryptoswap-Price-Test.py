@@ -2,47 +2,9 @@ import scipy as sp
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from math import prod, ceil
+from math import prod
 from typing import List
 from itertools import product, permutations
-
-def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
-    """
-    Finding the `D` invariant using Newton's method.
-
-    ANN is A * N**N from the whitepaper multiplied by the
-    factor A_MULTIPLIER.
-    """
-    
-    N: int = len(xp_unsorted)
-    
-    x: List[int] = xp_unsorted.copy()
-
-    A = ANN / N**N
-    S: float = sum(x)
-    P: float = prod(x)
-
-    #D0: float = N * sp.stats.gmean(x)  # initial estimate when solving for D
-    D0: float = S
-
-    # function representing our invariant
-    def cryptoswap(D: float) -> List[float]:
-        K0: float = P / (D / N)**N
-        _g1mk0: float = gamma + 1 - K0
-        K: float = A * K0 * gamma**2 / _g1mk0**2
-
-        invariant: float = K * D**(N - 1) * S + P - K * D**N - (D / N)**N # this form = 0
-        
-        return list(invariant) 
-
-    # List[float], dict, int, str are returned
-    D, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[D0], full_output=True)
-
-    # if fsolve found a solution
-    if ier == 1:
-        return D[0]
-
-    raise Exception(f"D did not converge: {mesg} {ANN} {gamma} {x} {D[0]} {D0}")
 
 def _fee(fee_params: List[float], xp: List[float]) -> float:
     """
@@ -62,6 +24,43 @@ def _fee(fee_params: List[float], xp: List[float]) -> float:
     g = fee_gamma / (fee_gamma + 1 - (P / (S / N)**N))
     
     return g * mid_fee + (1 - g) * out_fee
+
+def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
+    """
+    Finding the `D` invariant using Newton's method.
+
+    ANN is A * N**N from the whitepaper multiplied by the
+    factor A_MULTIPLIER.
+    """
+    
+    N: int = len(xp_unsorted)
+    
+    x: List[int] = xp_unsorted.copy()
+
+    A = ANN / N**N
+    S: float = sum(x)
+    P: float = prod(x)
+
+    D0: float = N * sp.stats.gmean(x)  # initial estimate when solving for D
+
+    # function representing our invariant
+    def cryptoswap(D: float) -> List[float]:
+        K0: float = P / (D / N)**N
+        _g1mk0: float = gamma + 1 - K0
+        K: float = A * K0 * gamma**2 / _g1mk0**2
+
+        invariant: float = K * D**(N - 1) * S + P - K * D**N - (D / N)**N # this form = 0
+        
+        return list(invariant) 
+
+    # List[float], dict, int, str are returned
+    D, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[D0], full_output=True)
+
+    # if fsolve found a solution
+    if ier == 1:
+        return D[0]
+
+    raise Exception(f"D did not converge: {mesg} {ANN} {gamma} {x} {D[0]} {D0}")
  
 def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[float]) -> float:
     """
@@ -78,7 +77,6 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
     P_x_j: float = prod(x_j)
      
     y0: float  = (D / N)**N / P_x_j # initial estimate when solving for y
-    #y0: float = xp_unsorted[j]
 
     # function representing our invariant
     def cryptoswap(y: float) -> List[float]:
@@ -87,8 +85,6 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
         _g1mk0: float = gamma + 1 - K0
         K: float = A * K0 * gamma**2 / _g1mk0**2
 
-        # normal form is K * D**(N - 1) * (S_x_j + y) + P_x_j * y - K * D**N - (D / N)**N
-        #invariant: float = K0**3 - (2 * gamma + 3) * K0**2 + (ANN * gamma**2 * (S - D) / D + (gamma + 1) * (gamma + 3)) * K0 - (gamma + 1)**2 #  this form = 0
         invariant: float = K * D**(N - 1) * (S_x_j + y) + P_x_j * y - K * D**N - (D / N)**N
 
         return list(invariant)
@@ -150,44 +146,6 @@ def get_dy(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], 
     dy_fee = dy * (1 - _fee(fee_params, xp_copy))
     
     return dy, dy_fee
-
-def get_dydx(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], dx: float, fee_params: List[float]) -> (float, float):
-    """
-    Calculate the effective swap price after trading 
-    'dx' amount of the 'i'-th coin for dy of the 'j'-th coin.
-    Returns in coin j per coin i in D units.
-
-    Parameters
-    ----------
-    i: int
-        Index of 'in' coin
-    j: int
-        Index of 'out' coin
-    ANN: float
-        A * N**N
-    gamma: float
-        Coefficient controlling liquidity concentration
-    D: float 
-        Total deposits, akin to liquidity depth
-    xp: List[float]
-        Amounts of each coin
-    fee_params: List[float]
-        List containing fee gamma, mid fee, and out fee for 
-        the fee calculation
-        
-    Returns
-    -------
-    float
-        The output of coin j divided by the input of coin i
-    float
-        The output of coin j divided by the input of coin i minus the swap fee
-    """
-    dy, dy_fee = get_dy(i, j, ANN, gamma, D, xp, dx, fee_params)
-    
-    p: float = dy / dx
-    p_fee: float = dy_fee / dx
-        
-    return p, p_fee
 
 def spot_price(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], fee_params: List[float]) -> (float, float):
     """
@@ -308,6 +266,7 @@ def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], f
     return price_ji, price_ji_fee
 
 # Parameters taken from Tricrypto-2 (USDT-BTC-ETH) are indicated below
+# https://etherscan.io/address/0xd51a44d3fae010294c616388b506acda1bfaae46#readContract
 
 Ns: List[int] = [2, 3]
 
@@ -333,26 +292,6 @@ fee_params_lists: List[List[float]] = [[fee_gamma, mid_fee, out_fee],]
 
 # In every list of list of balances, scenarios are separated by line, with each line ordered from 
 # least to most imbalanced: 
-
-'''
-Programatically generating xps
-
-1. How are we going to traverse each bonding curve parameterized by p and initial (x1, x2, ..., xn)?
-    1a. How will we define a sufficient domain for any particular curve? 
-        intervals? every [movement in any of the dimensions], take a test case
-
-        far out enough on any of the axes, we will encounter asymptotic behaviour (since we're restricted
-        by the invariant), so we might stop once we reach some limit
-
-    
-
-2. All permutations of 1 input, ..., N - 1 simultaneous inputs
-
-3. Where does the randomness originate from?
-    - random p
-    - random initial (x1, ..., xn)
-    - "noise" in the dx
-'''
 
 # 2-coin crveth is an example (ETH-CRV):
 # perfect balance
@@ -434,8 +373,8 @@ xps[2] = two_coin_xps
 xps[3] = three_coin_xps
 
 dx_iter: int = 4 # num. of dx to iterate through  
-dx_step: float = 1 # increment dx by this much in token 0 units (not factoring in precision)
-dxs: List[float] = [i * dx_step for i in range(1, dx_iter + 1)]
+dx_step: float = 10**-2 # increment in this fraction of the smallest baLance in xp
+dxs: List[float] = list((lambda xp: i * dx_step * min(xp) for i in range(1, dx_iter + 1)))
 
 # for csv output
 table = []
@@ -455,8 +394,7 @@ for N in Ns:
             ANN = param_set[1]
             gamma = param_set[2]
             xp = param_set[3]
-            # dx = param_set[4]
-            dx = min(xp) * 10**-3
+            dx = param_set[4](xp) # dx is based on min(xp), so we feed xp to the generator
             fee_params = param_set[5]
             
             notij = list(set(range(N)) - set((i, j)))
@@ -486,7 +424,6 @@ for N in Ns:
                           dy_fee, dydx_fee, simple_derivation_fee, optimized_derivation_fee, \
                           simple_derivation_delta_fee, optimized_derivation_delta_fee, delta_diff_fee])
 
-# think of a possible better way than simply overwriting every time
 filepaths = ['Cryptoswap-Price-Test.csv', 'Cryptoswap-Price-Test-Stats.csv'] 
 column_labels = ["N", "(i, j)", "A", "gamma", "[fee_gamma, mid_fee, out_fee]", "xp[i]", "xp[j]", "[xp[not i or j]]", \
                  "D", "dx", "dy", "dy / dx", "Our Formula", "Onchain Formula", "Our Formula Delta", "Onchain Formula Delta", "Difference in Deltas", "dy with Fee", "dy / dx with Fee", "Our Formula with Fee", "Onchain Formula with Fee", "Our Formula with Fee Delta", "Onchain Formula with Fee Delta", "Difference in Deltas with Fees"]
@@ -498,31 +435,3 @@ df.hist(column="Our Formula with Fee Delta")
 df.hist(column="Onchain Formula with Fee Delta")
 df.hist(column="Difference in Deltas with Fees")
 plt.show()
-
-'''
-have various A, gamma, balances, and n -> write all functions as if n could be > 2
-    For simplicity, all these variables should be inputs in each function as necessary -> declare all at bottom of script to pass right into functions
-solve for D under Cryptoswap -> _newton_D
-choose a very small dx for x_i, solve for x_j -> _newton_y, get the dy for coin j, divide dy by dx to get discretized derivative
-    Make sure i and j in all functions have the same meaning (j - output, i - input)
-    Specifically, report all spot prices in coin j (output) per coin i (input)
-compare the discretized derivative to each price formula *given the same inputs* A, gamma, balances, -> same solved D, and same dx
-After each dy / dx calculation apply the fee formula given xp (including dx)
-output results in csv form, probably using pandas to_csv
-''' 
-
-# Questions:
-'''
-Some thoughts on introducing "noise" to inputs
-    
-    dx as balance mod (1 bp? * balance)? - with random() or brownian noise, which lies under a normal distribution 
-    
-    (make things more automatable this way) (can exclude random() or mod part)
-            
-        why mod? will help further vary the dx if we ever feed in randomly generated balances (variance of taking mod percentage vs. just percentage)
-        
-            mod floats seems lossy tho
-    
-Using copy() a lot - will this consume too much memory in production?
-'''
-
