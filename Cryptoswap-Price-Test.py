@@ -42,8 +42,6 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
     S: float = sum(x)
     P: float = prod(x)
 
-    D0: float = N * sp.stats.gmean(x)  # initial estimate when solving for D
-
     # represent cryptoswap as a degree 3N polynomial of D for better stability when solving
     # derive from normal form by removing all instances of D in any denominator (i.e. K0)
     degree: int = 3 * N
@@ -67,7 +65,6 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
     coefficients[len(coefficients) - 1] = c_0
 
     roots: List[float] = np.roots(coefficients)
-    #print(roots)
 
     # function representing our invariant
     def cryptoswap(D: float) -> List[float]:
@@ -76,29 +73,18 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
         K: float = A * K0 * gamma**2 # / _g1mk0**2
 
         invariant: float = K * D**(N - 1) * S + P * _g1mk0**2 - K * D**N - (D / N)**N * _g1mk0**2 # this form = 0
-        
-        #return list(invariant) 
+
         return invariant
 
     # filter roots: check if each root is real and then positive
     good_roots = lambda root: np.isreal(root) and root > 0 
-    # and isclose(cryptoswap(root), 0.0, abs_tol=10**-2 * min(xp_unsorted))
     
     promising: List[float] = list(map(float, filter(good_roots, roots)))
     if len(promising) > 0:
         D: float = min(promising, key=lambda root: abs(cryptoswap(root))) # brings cryptoswap closest to 0
         return D
     else: 
-        raise Exception(f"No solution for D: {roots} {xp_unsorted}")
-    
-    # List[float], dict, int, str are returned
-    #D, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[D0], full_output=True, xtol=1e-10)
-
-    # if fsolve found a solution
-    #if ier == 1:
-        #return D[0]
-
-    raise Exception(f"D did not converge: {mesg} {ANN} {gamma} {x} {D[0]} {D0}")
+        raise Exception(f"No solution for D: {roots} {xp_unsorted} {ANN} {gamma}")
  
 def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[float]) -> float:
     """
@@ -117,25 +103,13 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
     # transform Cryptoswap into a polynomial of y (x[i]):
     # ay**3 + by**2 + cy + d = 0
     K0_j = P_x_j / (D / N)**N
-    '''
-    a: float = K0_j**3
-    b: float = -(2 * gamma + 3) * K0_j**2 + ANN * gamma**2 * K0_j / D
-    c: float = ANN * gamma**2 * K0_j * (S_x_j - D) / D + (gamma + 1) * (gamma + 3) * K0_j
-    d: float = -(gamma + 1)**2
-    '''
-
     a: float = D * K0_j**3
     b: float = -(2 * gamma + 3) * D * K0_j**2 + ANN * K0_j * gamma**2
     c: float = ANN * K0_j * (S_x_j - D) * gamma**2 + (gamma + 1) * (gamma + 3) * D * K0_j
     d: float = -(gamma + 1)**2 * D
-    #coefficients = [d, c, b, a] # ascending degree
-    coefficients = [a, b, c, d]
+    coefficients = [a, b, c, d] # descending degree
 
-    #roots: List[float] = np.polynomial.polynomial.polyroots(coefficients)
-    #print(roots)
     roots: List[float] = np.roots(coefficients)
-    
-    y0: float  = (D / N)**N / P_x_j # initial estimate when solving for y
 
     # function representing our invariant
     def cryptoswap(y: float) -> List[float]:
@@ -145,31 +119,18 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
         K: float = A * K0 * gamma**2 # / _g1mk0**2
 
         invariant: float = K * D**(N - 1) * (S_x_j + y) + P_x_j * y * _g1mk0**2 - K * D**N - (D / N)**N * _g1mk0**2
-        #invariant: float = a * y**3 + b * y**2 + c * y + d
 
-        #return list(invariant)
         return invariant
 
     # filter roots: check if each root is real and then positive
     good_roots = lambda root: np.isreal(root) and root > 0 
-    #and isclose(cryptoswap(root), 0.0, abs_tol=10**-2 * min(xp_unsorted))
     
     promising: List[float] = list(map(float, filter(good_roots, roots)))
     if len(promising) > 0:
         y: float = min(promising, key=lambda root: abs(cryptoswap(root))) # brings cryptoswap closest to 0
         return y
     else: 
-        raise Exception(f"No solution for y: {roots} {xp_unsorted}")
-
-    # List, dict, int, str are returned
-    #y, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[y0], full_output=True, xtol=1e-10)
-
-    # if fsolve found a solution
-    #if ier == 1:
-        #print(xp_unsorted, i, roots, y[0], cryptoswap2(y[0]))
-        #return y[0]
-
-    raise Exception(f"y did not converge: {mesg} {ANN} {gamma} {xp_unsorted} {D} {y[0]} {y0}")
+        raise Exception(f"No solution for y: {roots} {xp_unsorted} {ANN} {gamma}")
 
 def get_dy(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], dx: float, fee_params: List[float]) -> (float, float):
     """
@@ -498,10 +459,10 @@ for N in Ns:
                           dy_fee, dydx_fee, simple_derivation_fee, optimized_derivation_fee, \
                           simple_derivation_delta_fee, optimized_derivation_delta_fee, delta_diff_fee])
 
-filepaths = ['Cryptoswap-Price-Test.csv', 'Cryptoswap-Price-Test-Stats.csv'] 
 column_labels = ["N", "(i, j)", "A", "gamma", "[fee_gamma, mid_fee, out_fee]", "xp[i]", "xp[j]", "[xp[not i or j]]", \
                  "D", "dx", "dy", "dy / dx", "Our Formula", "Onchain Formula", "Our Formula Delta", "Onchain Formula Delta", "Difference in Deltas", "dy with Fee", "dy / dx with Fee", "Our Formula with Fee", "Onchain Formula with Fee", "Our Formula with Fee Delta", "Onchain Formula with Fee Delta", "Difference in Deltas with Fees"]
 df = pd.DataFrame(data=table, columns=column_labels)
+filepaths = ['Cryptoswap-Price-Test.csv', 'Cryptoswap-Price-Test-Stats.csv'] 
 df.to_csv(filepaths[0])
 df.describe().to_csv(filepaths[1])
 
@@ -512,19 +473,6 @@ plt.show()
 
 '''
 To do:
-
-- use different cryptoswap forms when solving 
-    newton_y: use the cubic equation, rewrite to be cubic in y
-
-    newton_D: possible forms can be found in tricrypto2 optimization report
-        D0 estimate may also be different
-
-    numpy (poly) root solver may be better than fsolve if using polynomial form
-
-- in newton_y and newton_D, check if the solution is actually a solution > 0 (invariant near 0) 
-    use math.isclose - set abstol to 1e-10
-
-    could define tol: float = 1e-10
 
 - don't output unnecessary values
     fee_params, dy, dy / dx, ..., difference in deltas without fees
