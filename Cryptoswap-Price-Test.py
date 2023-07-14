@@ -268,9 +268,9 @@ def spot_price(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[floa
     _g1pk0 = gamma + 1 + K0
     _g1mk0 = gamma + 1 - K0 
     
-    above: float = xp_copy[i] * ((ANNG2 / (D * _g1mk0**2)) * ((_g1pk0 * (S - D)) / _g1mk0 + xp_copy[j]) + 1)
+    above: float = xp_copy[j] * ((ANNG2 / (D * _g1mk0**2)) * ((_g1pk0 * (S - D)) / _g1mk0 + xp_copy[i]) + 1)
     
-    below: float = xp_copy[j] * ((ANNG2 / (D * _g1mk0**2)) * ((_g1pk0 * (S - D)) / _g1mk0 + xp_copy[i]) + 1)
+    below: float = xp_copy[i] * ((ANNG2 / (D * _g1mk0**2)) * ((_g1pk0 * (S - D)) / _g1mk0 + xp_copy[j]) + 1)
     
     # Spot price in token j per token i
     price_ji: float = above / below
@@ -327,9 +327,9 @@ def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], f
     # gamma**2 <= GK0 <= (gamma + 1)**2
     GK0 = 2 * K0**3 - (2 * gamma + 3) * K0**2 + (gamma + 1)**2
     
-    above: float = xp_copy[i] * (GK0 + ANNG2 * K0 * xp_copy[j] / D)
+    above: float = xp_copy[j] * (GK0 + ANNG2 * K0 * xp_copy[i] / D)
     
-    below: float = xp_copy[j] * (GK0 + ANNG2 * K0 * xp_copy[i] / D)
+    below: float = xp_copy[i] * (GK0 + ANNG2 * K0 * xp_copy[j] / D)
     
     # Spot price in token j per token i
     price_ji: float = above / below
