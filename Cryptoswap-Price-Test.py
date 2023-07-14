@@ -59,7 +59,7 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
     # Array of coefficients ranked by degree
     coefficients: List[float] = [0.0] * (degree + 1) # includes degree 0 
 
-    # ascending degree
+    # descending degree
     coefficients[-(3 * N + 1)] = c_3N # index 0 
     coefficients[-(2 * N + 1)] = c_2N
     coefficients[-(2 * N - 1 + 1)] = c_2Nm1
@@ -80,13 +80,13 @@ def _newton_D(ANN: float, gamma: float, xp_unsorted: List[float]) -> float:
         #return list(invariant) 
         return invariant
 
-    # filter roots: check if each root is real and then positive and then if cryptoswap returns 0
+    # filter roots: check if each root is real and then positive
     good_roots = lambda root: np.isreal(root) and root > 0 
     # and isclose(cryptoswap(root), 0.0, abs_tol=10**-2 * min(xp_unsorted))
     
     promising: List[float] = list(map(float, filter(good_roots, roots)))
     if len(promising) > 0:
-        D: float = min(promising, key=cryptoswap) # brings cryptoswap closest to 0
+        D: float = min(promising, key=lambda root: abs(cryptoswap(root))) # brings cryptoswap closest to 0
         return D
     else: 
         raise Exception(f"No solution for D: {roots} {xp_unsorted}")
@@ -128,10 +128,12 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
     b: float = -(2 * gamma + 3) * D * K0_j**2 + ANN * K0_j * gamma**2
     c: float = ANN * K0_j * (S_x_j - D) * gamma**2 + (gamma + 1) * (gamma + 3) * D * K0_j
     d: float = -(gamma + 1)**2 * D
-    coefficients = [d, c, b, a] # ascending degree
+    #coefficients = [d, c, b, a] # ascending degree
+    coefficients = [a, b, c, d]
 
-    roots: List[float] = np.polynomial.polynomial.polyroots(coefficients)
+    #roots: List[float] = np.polynomial.polynomial.polyroots(coefficients)
     #print(roots)
+    roots: List[float] = np.roots(coefficients)
     
     y0: float  = (D / N)**N / P_x_j # initial estimate when solving for y
 
@@ -148,16 +150,16 @@ def _newton_y(i: int, ANN: float, gamma: float, D: float, xp_unsorted: List[floa
         #return list(invariant)
         return invariant
 
-    # filter roots: check if each root is real and then positive and then if cryptoswap returns 0
+    # filter roots: check if each root is real and then positive
     good_roots = lambda root: np.isreal(root) and root > 0 
     #and isclose(cryptoswap(root), 0.0, abs_tol=10**-2 * min(xp_unsorted))
     
     promising: List[float] = list(map(float, filter(good_roots, roots)))
     if len(promising) > 0:
-        y: float = min(promising, key=cryptoswap) # brings cryptoswap closest to 0
+        y: float = min(promising, key=lambda root: abs(cryptoswap(root))) # brings cryptoswap closest to 0
         return y
     else: 
-        raise Exception(f"No solution for D: {roots} {xp_unsorted}")
+        raise Exception(f"No solution for y: {roots} {xp_unsorted}")
 
     # List, dict, int, str are returned
     #y, infodict, ier, mesg = sp.optimize.fsolve(func=cryptoswap, x0=[y0], full_output=True, xtol=1e-10)
