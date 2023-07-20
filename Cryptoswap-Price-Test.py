@@ -419,7 +419,8 @@ dxs: List[float] = list((lambda xp: i * dx_step * min(xp) for i in range(1, dx_i
 table = []
 column_labels = ["N", "i, j", "A", "gamma", "fee_params", "xp[i]", "xp[j]", "xp[else]", \
                  "D", "dx", "dy", "dy / dx", "Offchain Formula", "Onchain Formula", "Offchain Formula Delta", "Onchain Formula Delta", "Delta Difference", "dy With Fee", "dy / dx With Fee", "Offchain Formula With Fee", "Onchain Formula With Fee", "Offchain Formula Delta With Fee", "Onchain Formula Delta With Fee", "Delta Difference With Fee"]
-default_columns = []
+default_columns = ["A", "gamma", "xp[i]", "xp[j]", "xp[else]", "D", "dx", "dy / dx", "Offchain Formula Delta", "Onchain Formula Delta", "Delta Difference"]
+#default_columns = []
 
 if args.full:
     csv_columns = column_labels
@@ -488,20 +489,16 @@ for N in Ns:
             simple_derivation, simple_derivation_fee = spot_price(i, j, ANN, gamma, D, xp, fee_params) # our formula
             optimized_derivation, optimized_derivation_fee = get_p(i, j, ANN, gamma, D, xp, fee_params) # onchain formula
             
-            simple_derivation_delta = dydx - simple_derivation
-            optimized_derivation_delta = dydx - optimized_derivation
+            simple_derivation_delta = (dydx - simple_derivation) / dydx
+            optimized_derivation_delta = (dydx - optimized_derivation) / dydx
             delta_diff = simple_derivation_delta - optimized_derivation_delta
         
-            simple_derivation_delta_fee = (dydx_fee - simple_derivation_fee) #/ dydx_fee
-            optimized_derivation_delta_fee = (dydx_fee - optimized_derivation_fee) #/ dydx_fee
+            simple_derivation_delta_fee = (dydx_fee - simple_derivation_fee) / dydx_fee
+            optimized_derivation_delta_fee = (dydx_fee - optimized_derivation_fee) / dydx_fee
             delta_diff_fee = simple_derivation_delta_fee - optimized_derivation_delta_fee
 
             notij = list(set(range(N)) - set((i, j)))
 
-            # most efficient to control what gets in the table here
-            # but perhaps we can put in everything, and control csv output below 
-            # (so advanced users can play with the complete df even with partial output)
-            
             # Each variable matches the corresponding column_labels label
             table.append([N, (i, j), ANN / N**N, gamma, fee_params, xp[i], xp[j], [xp[k] for k in notij], \
                 D, dx, dy, dydx, simple_derivation, optimized_derivation, simple_derivation_delta, \
@@ -514,7 +511,12 @@ df = pd.DataFrame(data=table, columns=column_labels)
 if csv_columns:
     filepaths = ['Cryptoswap-Price-Test.csv', 'Cryptoswap-Price-Test-Stats.csv']
     df.to_csv(filepaths[0], columns=csv_columns)
-    df.describe().to_csv(filepaths[1], columns=csv_columns)
+    stats = df.describe() 
+    # by default, df.describe() generates descriptive statistics only for numerical values
+    stats_columns = list(set(csv_columns).intersection(set(stats.columns)))
+    order = lambda label: column_labels.index(label)
+    stats_columns.sort(key=order)
+    stats.to_csv(filepaths[1], columns=stats_columns)
 
 if args.plot:
     df.hist(column="Offchain Formula Delta")
