@@ -289,7 +289,8 @@ def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], f
     price_ji_fee: float = price_ji * (1 - _fee(fee_params, xp_copy))
     
     return price_ji, price_ji_fee
-
+    
+description = ""
 parser = argparse.ArgumentParser()
 
 # controls csv output specifically 
@@ -418,9 +419,10 @@ dxs: List[float] = list((lambda xp: i * dx_step * min(xp) for i in range(1, dx_i
 # for csv output
 table = []
 column_labels = ["N", "i, j", "A", "gamma", "fee_params", "xp[i]", "xp[j]", "xp[else]", \
-                 "D", "dx", "dy", "dy / dx", "Offchain Formula", "Onchain Formula", "Offchain Formula Delta", "Onchain Formula Delta", "Delta Difference", "dy With Fee", "dy / dx With Fee", "Offchain Formula With Fee", "Onchain Formula With Fee", "Offchain Formula Delta With Fee", "Onchain Formula Delta With Fee", "Delta Difference With Fee"]
+                 "D", "dx", "dy", "dy / dx", "Offchain Formula", "Onchain Formula", "Offchain Formula Delta", "Onchain Formula Delta", "Delta Difference", \
+                 "dy With Fee", "dy / dx With Fee", "Offchain Formula With Fee", "Onchain Formula With Fee", "Offchain Formula Delta With Fee", "Onchain Formula Delta With Fee", "Delta Difference With Fee"]
 default_columns = ["A", "gamma", "xp[i]", "xp[j]", "xp[else]", "D", "dx", "dy / dx", "Offchain Formula Delta", "Onchain Formula Delta", "Delta Difference"]
-#default_columns = []
+column_label_order = lambda label: column_labels.index(label)
 
 if args.full:
     csv_columns = column_labels
@@ -448,8 +450,7 @@ elif args.select:
         # contains some but not all labels in column_labels
         case [*arguments] if set(arguments).issubset(set(column_labels)): 
             unique = list(set(arguments))
-            order = lambda label: column_labels.index(label)
-            csv_columns = sorted(unique, key=order) # sort according to order of column_labels' labels
+            csv_columns = sorted(unique, key=column_label_order) # sort according to order of column_labels' labels
         # contains labels not in column_labels
         case [*arguments]:
             invalid = [label for label in arguments if label not in column_labels]
@@ -514,8 +515,7 @@ if csv_columns:
     stats = df.describe() 
     # by default, df.describe() generates descriptive statistics only for numerical values
     stats_columns = list(set(csv_columns).intersection(set(stats.columns)))
-    order = lambda label: column_labels.index(label)
-    stats_columns.sort(key=order)
+    stats_columns.sort(key=column_label_order)
     stats.to_csv(filepaths[1], columns=stats_columns)
 
 if args.plot:
