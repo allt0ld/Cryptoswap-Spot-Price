@@ -289,9 +289,10 @@ def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], f
     price_ji_fee: float = price_ji * (1 - _fee(fee_params, xp_copy))
     
     return price_ji, price_ji_fee
-    
-description = ""
-parser = argparse.ArgumentParser()
+
+description = "A test comparing accuracy of two Curve v2 spot price implementations derived from \
+differentiating the Cryptoswap invariant"
+parser = argparse.ArgumentParser(description=description)
 
 # controls csv output specifically 
 # --full, --nothing, and --select are mutually exclusive
@@ -510,7 +511,7 @@ for N in Ns:
 df = pd.DataFrame(data=table, columns=column_labels)
 
 if csv_columns:
-    filepaths = ['Cryptoswap-Price-Test.csv', 'Cryptoswap-Price-Test-Stats.csv']
+    filepaths = ['Cryptoswap-Spot.csv', 'Cryptoswap-Spot-Stats.csv']
     df.to_csv(filepaths[0], columns=csv_columns)
     stats = df.describe() 
     # by default, df.describe() generates descriptive statistics only for numerical values
@@ -530,24 +531,9 @@ To do:
 check if D errors (currently 1-100 range) get bigger or stay the same as balances increase
     consider multiplying all balances by 100 to convert them to cents (to check above effect)
 
-Figure out argparse arguments, decide what default cleaned-up output should be, then write the handling for argparse args
-
-
-- make output cleaner
-    select what to output (command line input not necessary)
-
-    such as (i, j) fee_params, dy, dy / dx, ..., difference in deltas WITHOUT FEES
-
-    clarify that xp[i] is balance receiving input, xp[j] is balance that is reduced by output, xp[k] is neither of those
-
-        pre or post swap balances?
-
 - command line interaction
 
     description="..."
-
-    no args - run with default values/flags
-
 
 group: quiet_or_verbose = parser.add_mutually_exclusive_group()
 
