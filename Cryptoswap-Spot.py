@@ -1,10 +1,12 @@
 import ast
 import argparse
+import pathlib
+import os.path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from math import prod, isclose
+from math import prod
 from typing import List
 from itertools import product, permutations
 
@@ -182,7 +184,7 @@ def spot_price(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[floa
     Calculate a spot price in coin j per coin i in D units.
     Simply differentiate the Cryptoswap equation F
     to derive the formula below, equal to (dF/dy)/(dF/dx),
-    and simplify.
+    and simplify. ("Offchain Formula")
     
     Parameters
     ----------
@@ -238,7 +240,7 @@ def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], f
     """
     "Optimized" spot price calculation in coin j per coin i in D units. 
     Implemented in onchain Tricrypto-NG pools and requires a 
-    more complex derivation than the formula above.
+    more complex derivation than the formula above. ("Onchain Formula")
     
     i AND j MAYBE UNNECESSARY (according to onchain implementation)
     
@@ -290,6 +292,7 @@ def get_p(i: int, j: int, ANN: float, gamma: float, D: float, xp: List[float], f
     
     return price_ji, price_ji_fee
 
+# command line stuff
 description = "A test comparing accuracy of two Curve v2 spot price implementations derived from \
 differentiating the Cryptoswap invariant"
 parser = argparse.ArgumentParser(description=description)
@@ -297,15 +300,23 @@ parser = argparse.ArgumentParser(description=description)
 # controls csv output specifically 
 # --full, --nothing, and --select are mutually exclusive
 output_mode = parser.add_mutually_exclusive_group()
-output_mode.add_argument("-f", "--full", action="store_true", help="all columns to csv file output")
-output_mode.add_argument("-n", "--nothing", action="store_true", help="no csv file output")
+output_mode.add_argument("-f", "--full", action="store_true", help="all columns to csv output")
+output_mode.add_argument("-n", "--nothing", action="store_true", help="no csv output")
 select_format = "Format: \"'label1', 'label2', ...,\" (\" \" outside and ' ' inside; writing \"[...]\" or \"(...)\" is optional)"
-output_mode.add_argument("-s", "--select", metavar="COLUMNS", help=f"ADVANCED: select columns by label for csv file output. \n{select_format}")
+output_mode.add_argument("-s", "--select", metavar="COLUMNS", help=f"ADVANCED: select columns by label for csv output. \n{select_format}")
+
+parser.add_argument("-d", "--dest", metavar="DIRECTORY", type=pathlib.Path, help="select csv output directory")
 
 parser.add_argument("-p", "--plot", action="store_true", help="output histograms")
 
+# --quiet and --verbose are mutually exclusive
+quiet_or_verbose = parser.add_mutually_exclusive_group()
+quiet_or_verbose.add_argument("-q", "--quiet", action="store_true", help="print nothing")
+quiet_or_verbose.add_argument("-v", "--verbose", action="store_true", help="increase print verbosity")
+
 args = parser.parse_args()
-    
+
+# Testing parameters
 # Parameters taken from Tricrypto-2 (USDT-BTC-ETH) are indicated below
 # https://etherscan.io/address/0xd51a44d3fae010294c616388b506acda1bfaae46#readContract
 
@@ -408,7 +419,7 @@ three_coin_xps: List[List[float]] = [[50_000_000, 50_000_000, 50_000_000], \
     [1.632 * 10**14, 3.93 * 10**14, 4.17 * 10**14], [1.21 * 10**13, 4.46 * 10**14, 5.4 * 10**14], \
                                           ]
 
-# map N to a list of lists of lists of N-length balances
+# map N to a list of lists of N-length balances
 xps: dict[int: List[List[float]]] = {}
 xps[2] = two_coin_xps
 xps[3] = three_coin_xps
@@ -425,6 +436,7 @@ column_labels = ["N", "i, j", "A", "gamma", "fee_params", "xp[i]", "xp[j]", "xp[
 default_columns = ["A", "gamma", "xp[i]", "xp[j]", "xp[else]", "D", "dx", "dy / dx", "Offchain Formula Delta", "Onchain Formula Delta", "Delta Difference"]
 column_label_order = lambda label: column_labels.index(label)
 
+# deciding columns for csv output
 if args.full:
     csv_columns = column_labels
 elif args.nothing or args.select == "":
@@ -465,14 +477,25 @@ elif args.select:
 else:
     csv_columns = default_columns
 
+if args.dest:
+    if not os.path.isdir(args.dest):
+        base_error_msg = "-d/--dest:"
+        message = f"{base_error_msg} please make sure the destination is an existing directory"
+        raise ValueError(message)
+
+# main testing logic
 for N in Ns:
 
     ij: List[tuple] = list(permutations(range(N), r=2)) # all possible ordered i-j pairs as tuples
 
     ANNs: List[float] = [A * N**N for A in [A_base + i * A_step for i in range(A_iter)]]
 
-    for xp in xps[N]:
+    if args.verbose:
+        print(f"Testing formulas for {N}-coin balances. A * N**N values will change, altering the invariant's leverage and thus its slippage behaviour.")
+    elif not args.quiet:
+        print(f"Testing formulas for {N}-coin balances.")
 
+    for xp in xps[N]:
         # all possible ordered combinations of the parameters defined above
         for param_set in product(ij, ANNs, gammas, [xp], dxs, fee_params_lists):
             # indices in param_set: 0 - (i, j); 1 - ANN; 2 - gamma; 3 - xp; 4 - dx; 5 - [fee_gamma, mid_fee, out_fee]
@@ -511,43 +534,33 @@ for N in Ns:
 df = pd.DataFrame(data=table, columns=column_labels)
 
 if csv_columns:
-    filepaths = ['Cryptoswap-Spot.csv', 'Cryptoswap-Spot-Stats.csv']
+    filepaths = [os.path.join(args.dest, 'Cryptoswap-Spot.csv') if args.dest else 'Cryptoswap-Spot.csv',\
+                 os.path.join(args.dest, 'Cryptoswap-Spot-Stats.csv') if args.dest else 'Cryptoswap-Spot-Stats.csv']
     df.to_csv(filepaths[0], columns=csv_columns)
     stats = df.describe() 
-    # by default, df.describe() generates descriptive statistics only for numerical values
-    stats_columns = list(set(csv_columns).intersection(set(stats.columns)))
+    # df.describe() generates descriptive metrics like the mean, std. deviation, min/max, quartiles, etc. These are the only columns for which said metrics would be meaningful
+    meaningful_stats_columns = ["dy / dx", "Offchain Formula Delta", "Onchain Formula Delta", "Delta Difference", \
+                               "dy / dx With Fee", "Offchain Formula Delta With Fee", "Onchain Formula Delta With Fee", "Delta Difference With Fee"]
+    stats_columns = list(set(csv_columns).intersection(set(meaningful_stats_columns), set(stats.columns)))
     stats_columns.sort(key=column_label_order)
     stats.to_csv(filepaths[1], columns=stats_columns)
+
+    if args.verbose:
+        print(f"Output CSV results at {os.path.abspath(filepaths[0])}")
+        print(f"CSV results columns: {csv_columns}")
+        print(f"Output descriptive statistics at {os.path.abspath(filepaths[1])}")
+        print(f"Descriptive statistics columns: {stats_columns}")
+    elif not args.quiet:
+        print(f"Output CSV results at {os.path.abspath(filepaths[0])}")
+        print(f"Output descriptive statistics at {os.path.abspath(filepaths[1])}")
 
 if args.plot:
     df.hist(column="Offchain Formula Delta")
     df.hist(column="Onchain Formula Delta")
     df.hist(column="Delta Difference")
-    plt.show()
+    plt.show(block=False)
 
-'''
-To do:
-
-check if D errors (currently 1-100 range) get bigger or stay the same as balances increase
-    consider multiplying all balances by 100 to convert them to cents (to check above effect)
-
-- command line interaction
-
-    description="..."
-
-group: quiet_or_verbose = parser.add_mutually_exclusive_group()
-
-    print to mark progress by default
-
-        print filepaths of files created
-
-    quiet mode 
-
-        quiet_or_verbose.add_argument("-q", "--quiet", action="store_true", help="print nothing")
-
-    verbose flag or verbosity levels
-        e.g. "Computing for N=3" or other major steps
-        
-            figure out an appropriate milestone (no need for customizability)
-
-'''
+    if args.verbose:
+        print(f"Plotting histograms of offchain formula's percentage error, onchain formula's percentage error, and offchain error - onchain error.")
+    elif not args.quiet:
+        print(f"Plotting histograms of test results.")
